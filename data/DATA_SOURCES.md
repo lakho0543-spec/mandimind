@@ -32,10 +32,8 @@ never edit raw files — raw is evidence.
 
 \- \*\*Download:\*\* in section 5B. Target file: `data/raw/wfp\_food\_prices\_pakistan.csv`.
 
-\- \*\*Downloaded on:\*\* 2026-11-26, 1,571,969 bytes
-
-\- \*\*SHA-256:\*\* E6000F09E3469D7EB36AF5FBFD2342451658B6DB5D0B5CB604F4A2E8FFE80C6D
-
+- **Downloaded on:** 2026-11-26, 51,250 bytes
+- **SHA-256:** B631069F793B8448F376F6BDF0539ADD2CBD72F7D03B23D106BAF99ED93929CA
 \- \*\*Used for:\*\* MandiMind features F1–F11 (prices, forecasts, anomalies,
 
 &#x20; clustering, advisor). This is our primary price source for Phase 1 MVP.
