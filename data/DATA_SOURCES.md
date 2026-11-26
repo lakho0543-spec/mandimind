@@ -32,9 +32,9 @@ never edit raw files — raw is evidence.
 
 \- \*\*Download:\*\* in section 5B. Target file: `data/raw/wfp\_food\_prices\_pakistan.csv`.
 
-\- \*\*Downloaded on:\*\* \_(to be filled in 5B — date + byte size)\_
+\- \*\*Downloaded on:\*\* 2026-11-26, 1,571,969 bytes
 
-\- \*\*SHA-256:\*\* \_(to be filled in 5B — checksum for reproducibility)\_
+\- \*\*SHA-256:\*\* E6000F09E3469D7EB36AF5FBFD2342451658B6DB5D0B5CB604F4A2E8FFE80C6D
 
 \- \*\*Used for:\*\* MandiMind features F1–F11 (prices, forecasts, anomalies,
 
@@ -54,7 +54,7 @@ never edit raw files — raw is evidence.
 
 \- \*\*Docs:\*\* https://open-meteo.com/en/docs/historical-weather-api
 
-\- \*\*Licence:\*\* CC BY 4.0 — free for commercial use with attribution.
+- **Licence:** CC BY-IGO (Creative Commons Attribution for Intergovernmental Organisations) — free for commercial and non-commercial use with attribution.
 
 \- \*\*Download:\*\* in section 5C. Target file: `data/raw/weather\_lahore\_2019\_2024.json`.
 
