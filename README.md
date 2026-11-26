@@ -40,3 +40,10 @@ Phase 0 — Foundation. Nothing runs yet.
 
 \- notebooks/ — exploration
 
+## Known local-dev issues
+
+- **WeasyPrint (Windows only):** requires the GTK3 native runtime, which is not
+  installed by pip. Deferred to Phase 4. Fallback plan: use `reportlab` (already
+  installed) for the PDF Crop Outlook Report, or install GTK3 when we reach Phase 4.
+  On Linux (Streamlit Community Cloud) WeasyPrint works out of the box via apt.
+
