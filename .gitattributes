@@ -1,0 +1,9 @@
+# Normalize line endings so Windows/macOS/Linux clones behave identically.
+* text=auto eol=lf
+
+# Binary-ish assets stay untouched.
+*.png binary
+*.jpg binary
+*.pdf binary
+*.xlsx binary
+*.pkl binary
