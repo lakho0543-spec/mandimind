@@ -4,10 +4,12 @@ __pycache__/
 .env
 data/raw/*
 data/processed/*
-!data/raw/.gitkeep
 !data/processed/.gitkeep
+!data/processed/*.parquet
+models/per_commodity/
 models/*.pkl
 models/*.joblib
+models/metrics.json
 reports/*.pdf
 .ipynb_checkpoints/
 .DS_Store
