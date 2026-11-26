@@ -28,6 +28,6 @@ jobs:
           # Full requirements.txt is heavy (prophet, xgboost); we only need the
           # test suite to pass CI right now. We widen this as the pipeline grows.
 
-        - name: Run tests
+      - name: Run tests
         run: |
           pytest -v
