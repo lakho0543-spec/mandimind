@@ -32,6 +32,26 @@ def add_lags_and_rolling(df: pd.DataFrame) -> pd.DataFrame:
     
     return df
 
+def add_momentum_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add momentum and differencing features.
+    These capture whether prices are accelerating up or down.
+    """
+    df = df.copy()
+    df = df.sort_values(by=['commodity_name', 'date'])
+    grouped = df.groupby('commodity_name')
+
+    # Price change over last week (1-week return)
+    df['price_pct_change_1'] = grouped['price_pkr_per_40kg'].pct_change(1)
+    
+    # Price change over last month (4-week return)
+    df['price_pct_change_4'] = grouped['price_pkr_per_40kg'].pct_change(4)
+    
+    # Difference between current and rolling mean (is price above/below trend?)
+    df['price_vs_rolling_mean'] = df['price_pkr_per_40kg'] - df['price_rolling_mean_4']
+
+    return df
+
 def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add basic seasonality flags.
@@ -65,17 +85,11 @@ def add_target_variable(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def build_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Master function: apply all feature engineering steps.
-    Drops rows where we don't have enough history for lags/targets.
-    """
     df = add_lags_and_rolling(df)
+    df = add_momentum_features(df)          # <- NEW
     df = add_calendar_features(df)
     df = add_target_variable(df)
     
-    # Drop rows with NaN in our crucial ML columns
-    # (e.g., the first 4 weeks won't have lags, the last week won't have a target)
     ml_columns = ['price_lag_1', 'price_lag_4', 'target_next_price']
     df = df.dropna(subset=ml_columns)
-    
     return df

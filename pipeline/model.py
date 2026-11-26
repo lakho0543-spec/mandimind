@@ -1,123 +1,174 @@
 """
-pipeline/model.py — Phase 3A (revised): Train forecasting model.
+pipeline/model.py — Phase 3G: Per-commodity forecasting + metrics export.
 
-Trains XGBoost on LOG RETURNS instead of absolute prices.
-Log returns are stationary, which makes ML models far more reliable for
-time series than absolute prices (which trend upward).
+Trains ONE XGBoost model per commodity. This is the standard approach
+in commodity forecasting because each crop has different seasonal and
+volatility dynamics.
 
-Compares against a Seasonal Naive baseline (predict next = current).
+Saves:
+  - Individual models to models/per_commodity/
+  - A metrics.json file summarizing which crops XGBoost can actually beat
+    the Naive baseline on, so the Streamlit app knows how to behave.
 """
 
 from __future__ import annotations
 
-import pandas as pd
-import numpy as np
-import xgboost as xgb
+import json
 from pathlib import Path
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+
+import numpy as np
+import pandas as pd
+import xgboost as xgb
 import joblib
+from sklearn.metrics import mean_absolute_error
+
+# We don't need mean_squared_error here, but we import it anyway if you want to extend later
+# from sklearn.metrics import mean_squared_error
 
 
-def load_and_prepare_data(parquet_path: str | Path = "data/processed/analysis_table.parquet") -> pd.DataFrame:
+def load_and_prepare_data(
+    parquet_path: str | Path = "data/processed/analysis_table.parquet",
+) -> pd.DataFrame:
     from pipeline.features import build_features
+
     df = pd.read_parquet(parquet_path)
     df = build_features(df)
     return df
 
 
-def get_features_and_target(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, list[str]]:
+FEATURE_COLS = [
+    "price_lag_1",
+    "price_lag_4",
+    "price_rolling_mean_4",
+    "price_rolling_std_4",
+    "price_pct_change_1",
+    "price_pct_change_4",
+    "price_vs_rolling_mean",
+    "temperature_2m_max",
+    "precipitation_sum",
+    "month",
+    "is_ramadan_season",
+    "is_monsoon_season",
+]
+
+
+def train_single_commodity(df: pd.DataFrame, commodity: str) -> dict:
     """
-    Features: lags, rolling stats, weather, calendar.
-    Target: log(price_next / price_now).
+    Train and evaluate XGBoost for ONE commodity.
+    Returns dict of metrics + the trained model.
     """
-    df = df.copy()
+    df_c = df[df["commodity_name"] == commodity].copy()
+    df_c["log_return"] = np.log(
+        df_c["target_next_price"] / df_c["price_pkr_per_40kg"]
+    )
+    df_c = df_c[df_c["log_return"].notna() & np.isfinite(df_c["log_return"])].copy()
 
-    # Log return target — stationary, so ML models can generalize across years.
-    df['log_return'] = np.log(df['target_next_price'] / df['price_pkr_per_40kg'])
-    df = df[df['log_return'].notna() & np.isfinite(df['log_return'])].copy()
+    if len(df_c) < 50:
+        return {"commodity": commodity, "skipped": True, "reason": "too few rows"}
 
-    feature_cols = [
-        'price_lag_1', 'price_lag_4',
-        'price_rolling_mean_4', 'price_rolling_std_4',
-        'temperature_2m_max', 'precipitation_sum',
-        'month', 'is_ramadan_season', 'is_monsoon_season',
-    ]
+    train = df_c[df_c["date"] < "2024-01-01"]
+    test = df_c[df_c["date"] >= "2024-01-01"]
 
-    X = df[feature_cols]
-    y = df['log_return']
-    return X, y, feature_cols
+    if len(train) < 30 or len(test) < 10:
+        return {"commodity": commodity, "skipped": True, "reason": "insufficient split"}
 
+    X_train = train[FEATURE_COLS]
+    y_train = train["log_return"]
+    X_test = test[FEATURE_COLS]
 
-def train_and_evaluate(df: pd.DataFrame) -> tuple[xgb.XGBRegressor, dict]:
-    """
-    Train XGBoost on log returns, evaluate on the ORIGINAL price scale
-    (so the comparison against the naive baseline is apples-to-apples).
-    """
-    df = df.copy()
-    X, y, feature_cols = get_features_and_target(df)
-
-    # --- Time-based split ---
-    train_mask = df['date'] < '2024-01-01'
-    test_mask = df['date'] >= '2024-01-01'
-
-    # Use the SAME mask applied to X / y via index alignment
-    X_train, y_train = X[train_mask.values], y[train_mask.values]
-    X_test, y_test = X[test_mask.values], y[test_mask.values]
-    df_test = df[test_mask.values].copy()
-
-    print(f"Training rows: {len(X_train)}, Testing rows: {len(X_test)}")
-
-    # --- Train XGBoost on log returns ---
     model = xgb.XGBRegressor(
-        n_estimators=200,
+        n_estimators=100,
         learning_rate=0.05,
-        max_depth=3,
+        max_depth=2,
         random_state=42,
-        objective='reg:squarederror',
+        objective="reg:squarederror",
     )
     model.fit(X_train, y_train)
 
-    # --- Predict ---
     preds_return = model.predict(X_test)
+    preds_price_xgb = test["price_pkr_per_40kg"].values * np.exp(preds_return)
+    preds_price_naive = test["price_pkr_per_40kg"].values
+    y_true = test["target_next_price"].values
 
-    # Convert log return predictions back to price predictions
-    # price_next = price_now * exp(log_return)
-    preds_price_xgb = df_test['price_pkr_per_40kg'].values * np.exp(preds_return)
+    mae_xgb = mean_absolute_error(y_true, preds_price_xgb)
+    mae_naive = mean_absolute_error(y_true, preds_price_naive)
 
-    # --- Naive baseline: next = current ---
-    preds_price_naive = df_test['price_pkr_per_40kg'].values
+    improvement = ((mae_naive - mae_xgb) / mae_naive) * 100
 
-    # --- Evaluate on the PRICE scale (PKR per 40 kg) ---
-    y_true_price = df_test['target_next_price'].values
-
-    mae_xgb = mean_absolute_error(y_true_price, preds_price_xgb)
-    rmse_xgb = np.sqrt(mean_squared_error(y_true_price, preds_price_xgb))
-    mae_naive = mean_absolute_error(y_true_price, preds_price_naive)
-    rmse_naive = np.sqrt(mean_squared_error(y_true_price, preds_price_naive))
-
-    metrics = {
-        'mae_xgb': mae_xgb,
-        'rmse_xgb': rmse_xgb,
-        'mae_naive': mae_naive,
-        'rmse_naive': rmse_naive,
-        'improvement_pct': ((mae_naive - mae_xgb) / mae_naive) * 100,
+    return {
+        "commodity": commodity,
+        "skipped": False,
+        "n_train": len(train),
+        "n_test": len(test),
+        "mae_xgb": mae_xgb,
+        "mae_naive": mae_naive,
+        "improvement_pct": improvement,
+        "model": model,
     }
-    return model, metrics
+
+
+def train_all_commodities(df: pd.DataFrame) -> dict:
+    commodities = sorted(df["commodity_name"].unique())
+    results = {}
+    for c in commodities:
+        results[c] = train_single_commodity(df, c)
+    return results
 
 
 if __name__ == "__main__":
     print("Loading data...")
     df = load_and_prepare_data()
 
-    print("Training and evaluating model...")
-    model, metrics = train_and_evaluate(df)
+    print(
+        f"Training per-commodity models for {df['commodity_name'].nunique()} commodities...\n"
+    )
+    results = train_all_commodities(df)
 
-    print("\n--- RESULTS ---")
-    print(f"Naive Baseline MAE: {metrics['mae_naive']:.2f} PKR")
-    print(f"XGBoost MAE:        {metrics['mae_xgb']:.2f} PKR")
-    print(f"Improvement:        {metrics['improvement_pct']:.1f}%")
+    print(
+        f"{'Commodity':30} {'XGB MAE':>12} {'Naive MAE':>12} {'Improvement':>14}"
+    )
+    print("-" * 72)
+    improving = 0
+    total = 0
+    metrics_for_app = {}
 
-    out_path = Path("models/xgboost_forecast.pkl")
-    out_path.parent.mkdir(exist_ok=True)
-    joblib.dump(model, out_path)
-    print(f"\nModel saved to {out_path}")
+    for c, r in results.items():
+        if r.get("skipped"):
+            print(f"{c[:30]:30} {'SKIPPED':>12} {r.get('reason', ''):>30}")
+            continue
+        total += 1
+        mark = "✅" if r["improvement_pct"] > 0 else "❌"
+        if r["improvement_pct"] > 0:
+            improving += 1
+        print(
+            f"{c[:30]:30} {r['mae_xgb']:>10.2f}   {r['mae_naive']:>10.2f}   {r['improvement_pct']:>+6.1f}% {mark}"
+        )
+
+        # Store for the app
+        metrics_for_app[c] = {
+            "mae_xgb": float(r["mae_xgb"]),
+            "mae_naive": float(r["mae_naive"]),
+            "improvement_pct": float(r["improvement_pct"]),
+            "use_ml": bool(r["improvement_pct"] > 0),  # only use ML if it beats naive
+        }
+
+    print("\n" + "=" * 72)
+    print(f"Improvement on {improving} of {total} commodities")
+    print("=" * 72)
+
+    # Save per-commodity models
+    out_dir = Path("models/per_commodity")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for c, r in results.items():
+        if not r.get("skipped"):
+            safe_name = (
+                c.replace("(", "").replace(")", "").replace(" ", "_").replace(",", "")
+            )
+            joblib.dump(r["model"], out_dir / f"{safe_name}.pkl")
+    print(f"\nModels saved to {out_dir}/")
+
+    # Save metrics JSON for the app
+    metrics_path = Path("models/metrics.json")
+    with open(metrics_path, "w") as f:
+        json.dump(metrics_for_app, f, indent=2)
+    print(f"Metrics saved to {metrics_path}")
