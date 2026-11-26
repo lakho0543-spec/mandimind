@@ -1,10 +1,14 @@
 import pytest
 import pandas as pd
+from pathlib import Path
 from pipeline.model import train_and_evaluate, load_and_prepare_data
 
+# Check if the data file exists
+DATA_PATH = Path("data/processed/analysis_table.parquet")
+
 @pytest.mark.skipif(
-    not pd.io.common.file_exists("data/processed/analysis_table.parquet"),
-    reason="Analysis table missing"
+    not DATA_PATH.exists(),
+    reason="Analysis table missing — need to run pipeline first"
 )
 def test_model_trains_and_returns_metrics():
     df = load_and_prepare_data()
