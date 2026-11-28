@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#10B981" # Emerald Green
+backgroundColor = "#F8FAFC" # Slate 50
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#0F172A" # Slate 900
+font = "sans serif"
